@@ -26,6 +26,7 @@ import os
 import time
 import urllib.parse
 import uuid
+from pathlib import Path
 
 import numpy as np
 from cloakbrowser import launch_async
@@ -46,16 +47,11 @@ _COEF = (0.00355, 0.0769, -0.004)
 _AK_ID = os.environ.get("ALIYUN_CAPTCHA_AK_ID") or ("LTAI5" + "tSEBwYMwVKAQGpxmvTd")
 _AK_SECRET = os.environ.get("ALIYUN_CAPTCHA_AK_SECRET") or ("YSKfst7GaVkXwZY" + "vVihJsKF9r89koz")
 
-_PAGE_TMPL = """<!doctype html><html><head><meta charset=utf-8></head><body>
-<div id="cap"></div><button id="btn" style="width:200px;height:44px">v</button>
-<script src="https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js"></script>
-<script>window.__ready=false;window.__verify=null;
-function boot(){{if(typeof initAliyunCaptcha!=='function'){{setTimeout(boot,200);return;}}
-initAliyunCaptcha({{SceneId:'{scene}',prefix:'{prefix}',mode:'popup',region:'{region}',
- language:'en',element:'#cap',button:'#btn',
- getInstance:function(i){{window.__inst=i;window.__ready=true;}},
- captchaVerifyCallback:function(p){{window.__verify=p;return{{captchaResult:true,bizResult:true}};}}}});}}
-boot();</script></body></html>"""
+# Minimal self-hosted page that mounts the widget (kept in a separate template.html,
+# same pattern as turnstile/). Placeholders are substituted with str.replace so the JS
+# braces stay literal (no .format() brace-doubling).
+_TEMPLATE_PATH = Path(__file__).parent / "template.html"
+_PAGE_TMPL = _TEMPLATE_PATH.read_text()
 
 
 def _sign(params: dict) -> str:
@@ -100,7 +96,10 @@ async def solve_aliyun(scene_id: str, prefix: str, region: str = "sgp",
         return {"solved": False, "error": "scene_id and prefix are required"}
 
     t_start = time.monotonic()
-    page_html = _PAGE_TMPL.format(scene=scene_id, prefix=prefix, region=region)
+    page_html = (_PAGE_TMPL
+                 .replace("__SCENE__", scene_id)
+                 .replace("__PREFIX__", prefix)
+                 .replace("__REGION__", region))
     kw = {"headless": True, "humanize": True}
     if proxy:
         kw["proxy"] = proxy

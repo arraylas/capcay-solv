@@ -9,13 +9,16 @@ for the browser-based paths.
 creation and form recon (CSRF/honeypot scraping, filling account fields) are the
 **caller's** job, not this service.
 
-Supported types (8): **Turnstile**, **reCAPTCHA** (v2 / v3 / invisible, incl.
+Supported types (10): **Turnstile**, **reCAPTCHA** (v2 / v3 / invisible, incl.
 Enterprise), **hCaptcha** (checkbox / invisible / real-page), **Cloudflare**
 (`cf_clearance`), **AWS WAF** (`aws-waf-token`, silent JS challenge), **BotGuard**
 (Google OAuth `bgRequest` token), **DataDome** (`datadome` clearance cookie —
 caller passes the DataDome-fronted url + referer, e.g. GitHub's octocaptcha signup
 gate), **PerimeterX** (HUMAN "Press & Hold" → `_px3` cookie via a real CDP press-hold
-gesture that drives the SHA-256 hashcash PoW Worker + biomechanics).
+gesture that drives the SHA-256 hashcash PoW Worker + biomechanics), **Akamai**
+(Bot Manager `_abck` clearance cookie via the `bmak` telemetry sensor), **Aliyun**
+(Captcha 2.0 slide-puzzle → `{certifyId, deviceToken, data}` token via cv2 gap
+detection + a quadratic handle→piece drag; params `scene_id` + `prefix`, no sitekey).
 
 ## Architecture
 
@@ -29,7 +32,9 @@ client ──HTTP──> server.py (FastAPI, :8877)
                      ├── awswaf/solve.py         (CloakBrowser — aws-waf-token harvester)
                      ├── botguard/solve.py       (CloakBrowser — Google OAuth bgRequest token)
                      ├── datadome/solve.py       (CloakBrowser — datadome cookie; caller passes url+referer)
-                     └── perimeterx/solve.py     (CloakBrowser — _px3 via CDP press-hold; renderers/ trigger the gate)
+                     ├── perimeterx/solve.py     (CloakBrowser — _px3 via CDP press-hold; renderers/ trigger the gate)
+                     ├── akamai/solve.py         (CloakBrowser — _abck via bmak telemetry sensor)
+                     └── aliyun/solve.py         (CloakBrowser — slide-puzzle; cv2 gap detect + quadratic drag)
 ```
 
 Each sub-solver launches CloakBrowser via `cloakbrowser.launch_async()`,
@@ -40,7 +45,7 @@ drives/harvests the challenge, and returns a replayable token. Every solver is
 
 | Method | Path       | Auth        | Description                                  |
 | ------ | ---------- | ----------- | -------------------------------------------- |
-| GET    | `/health`  | public      | Liveness + supported types (8)               |
+| GET    | `/health`  | public      | Liveness + supported types (10)              |
 | GET    | `/status`  | token       | Service status + list of currently running tasks |
 | GET    | `/logs`    | token       | Last N solve events (buffer holds up to 100; `lines` caps at 200 but returns only what's buffered; `total` is the full buffer size) |
 | POST   | `/solve`   | token       | Solve a captcha (dispatch by `type`)         |
@@ -135,10 +140,10 @@ when you deliberately need to hit an internal target.
 
 ```jsonc
 {
-  "type": "turnstile",          // turnstile | recaptcha | hcaptcha | cloudflare | awswaf | botguard | datadome | perimeterx  (required)
+  "type": "turnstile",          // turnstile | recaptcha | hcaptcha | cloudflare | awswaf | botguard | datadome | perimeterx | akamai | aliyun  (required)
   "sitekey": "0x4AAA...",        // site key (widget types only — cloudflare/awswaf/botguard/
-                                 //   datadome/perimeterx are page-level and need NO sitekey)
-  "url": "https://target.com",   // page the captcha is on            (required)
+                                 //   datadome/perimeterx/akamai/aliyun are page-level and need NO sitekey)
+  "url": "https://target.com",   // page the captcha is on            (required; NOT needed for aliyun)
 
   // optional, all types
   "action": "submit",            // turnstile/reCAPTCHA action
@@ -161,7 +166,18 @@ when you deliberately need to hit an internal target.
   // turnstile solve-and-verify
   "verify_url": "https://target.com/verify",
   "verify_payload": { "...": "..." },
-  "page_url": "https://target.com"
+  "page_url": "https://target.com",
+
+  // datadome only
+  "referer": "https://github.com/",   // framing referer so DataDome serves the real config
+
+  // perimeterx only
+  "render_flow": "outlook_signup",    // named trigger that makes the gate render
+
+  // aliyun only (no sitekey, no url)
+  "scene_id": "1r7eif79x",            // target site's captcha SceneId          (required)
+  "prefix": "13lbkb5",                // captcha-open endpoint prefix           (required)
+  "region": "sgp"                     // sgp (default) | cn | intl
 }
 ```
 
